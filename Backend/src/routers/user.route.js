@@ -1,0 +1,52 @@
+import { Router } from "express";
+import {
+    registerUser,
+    loginUser,
+    logoutUser,
+    registerStudent,
+    deleteStudent,
+    createBatch,
+    changeBatchName,
+    deleteBatch,
+    changeStudentBatch,
+    changeAllStudentsBatch,
+    createSubject,
+    changeSubjectName,
+    addStudentToSubject,
+    deleteSubjectFromBatch,
+    addUnit,
+    changeUnitName,
+    deleteUnitFromSubject,
+} from "../controllers/user.controller.js";
+import { verifyJWT } from "../middlewares/auth.middleware.js";
+
+const router = Router()
+
+// User routes
+router.route("/register").post(registerUser)
+router.route("/login").post(loginUser)
+router.route("/logout").post(verifyJWT, logoutUser)
+
+// Student routes
+router.route("/registerStudent").post(verifyJWT, registerStudent)
+router.route("/deleteStudent").delete(verifyJWT, deleteStudent)
+
+// Batch routes
+router.route("/create/batch").post(verifyJWT, createBatch)
+router.route("/change/batch/changeName").patch(verifyJWT, changeBatchName)
+router.route("/delete/batch").delete(verifyJWT, deleteBatch)
+router.route("/change/student/changeBatch").patch(verifyJWT, changeStudentBatch)
+router.route("/change/all/students/changeBatch").patch(verifyJWT, changeAllStudentsBatch)
+
+// Subject routes
+router.route("/create/subject").post(verifyJWT, createSubject)
+router.route("/change/subject/changeName").patch(verifyJWT, changeSubjectName)
+router.route("/add/student/to/subject").post(verifyJWT, addStudentToSubject)
+router.route("/delete/subject").delete(verifyJWT, deleteSubjectFromBatch)
+
+// Unit routes
+router.route("/add/unit").post(verifyJWT, addUnit)
+router.route("/change/unit/changeName").patch(verifyJWT, changeUnitName)
+router.route("/delete/unit").delete(verifyJWT, deleteUnitFromSubject)
+
+export default router

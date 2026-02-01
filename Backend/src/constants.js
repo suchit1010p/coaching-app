@@ -1,0 +1,1 @@
+export const DB_NAME = "coaching_db_app"

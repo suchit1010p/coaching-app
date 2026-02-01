@@ -1,0 +1,835 @@
+import { asyncHandler } from "../utils/asyncHandler.js";
+import { User } from "../models/user.model.js";
+import jwt from "jsonwebtoken";
+import { ApiResponse } from "../utils/ApiResponse.js"
+import { ApiError } from "../utils/ApiError.js";
+import { generateAccessAndRefereshTokens } from "../utils/GenerateToken.js";
+import { Student } from "../models/student.model.js";
+import { Batch } from "../models/batch.model.js";
+import { Subject } from "../models/subject.model.js";
+import { StudentSubject } from "../models/studentSubject.model.js";
+import { Unit } from "../models/unit.model.js";
+import { Material } from "../models/material.model.js";
+
+
+// register user
+const registerUser = asyncHandler(async (req, res) => {
+    const { name, email, mobile, password } = req.body
+
+    if (
+        [name, email, mobile, password].some((field) => field?.trim() === "")
+    ) {
+        throw new ApiError(400, "All fields are required")
+    }
+
+    const existedUser = await User.findOne({ $or: [{ email }, { mobile }] })
+
+    if (existedUser) throw new ApiError(409, "User with email or mobile exists")
+
+    const user = await User.create({
+        name,
+        email,
+        mobile,
+        password
+    })
+
+    const createdUser = await User.findById(user._id).select(
+        "-password -refreshToken"
+    )
+
+    const { accessToken, refreshToken } = await generateAccessAndRefereshTokens(user._id)
+
+    const options = {
+        httpOnly: true,
+        secure: true,
+        sameSite: "none"
+    }
+
+    if (!createdUser) {
+        throw new ApiError(500, "Something went wrong while registering the user")
+    }
+
+    return res
+        .status(201)
+        .cookie("accessToken", accessToken, options)
+        .cookie("refreshToken", refreshToken, options)
+        .json(
+            new ApiResponse(201, createdUser, "User registered Successfully")
+        )
+});
+
+// login user
+const loginUser = asyncHandler(async (req, res) => {
+    const { mobile, password } = req.body
+
+    if (!mobile) throw new ApiError(400, "email is required")
+    if (!password) throw new ApiError(400, "password is required")
+
+    const user = await User.findOne({ mobile })
+
+    if (!user) {
+        throw new ApiError(404, "user does not exist, Please register!!")
+    }
+
+    const isPasswordCorrect = await user.isPasswordCorrect(password)
+
+    if (!isPasswordCorrect) {
+        throw new ApiError(401, "Invalid user credentials")
+    }
+
+    const loggedInUser = await User.findById(user._id).select("-password -refreshToken")
+
+    const { accessToken, refreshToken } = await generateAccessAndRefereshTokens(user._id)
+
+    const options = {
+        httpOnly: true,
+        secure: true,
+        sameSite: "none"
+    }
+
+    return res
+        .status(200)
+        .cookie("accessToken", accessToken, options)
+        .cookie("refreshToken", refreshToken, options)
+        .json(
+            new ApiResponse(
+                200,
+                {
+                    user: loggedInUser, accessToken, refreshToken
+                },
+                "User logged In Successfully"
+            )
+        )
+})
+
+// logout user
+const logoutUser = asyncHandler(async (req, res) => {
+    await User.findByIdAndUpdate(
+        req.user._id,
+        {
+            $set: {
+                refreshToken: null
+            }
+        },
+        {
+            new: true
+        }
+    )
+
+    const options = {
+        httpOnly: true,
+        secure: true,
+        sameSite: "none"
+    }
+
+    return res
+        .status(200)
+        .clearCookie("accessToken", options)
+        .clearCookie("refreshToken", options)
+        .json(
+            new ApiResponse(200, {}, "User logged out Successfully")
+        )
+})
+
+// register student
+const registerStudent = asyncHandler(async (req, res) => {
+    const { rollNumber, name, mobile, password, parentName, parentMobile, batch } = req.body
+
+    if (
+        [rollNumber, name, mobile, password, parentName, parentMobile, batch].some((field) => field?.trim() === "")
+    ) throw new ApiError(400, "All field are required")
+
+    // check user exists
+    const normalizedNumber = mobile.trim()
+    const studentEntry = await Student.findOne({ normalizedNumber })
+
+    if (studentEntry) {
+        throw new ApiError(400, "Student Already exists!!")
+    }
+
+    // create entry. 
+    const student = await Student.create(
+        {
+            rollNumber,
+            name,
+            mobile,
+            password,
+            parentName,
+            parentMobile,
+            batch
+        }
+    )
+
+    // get user and remove password. 
+
+    const studentuser = await Student.findById(student._id).select("-password")
+
+    if (!studentuser) {
+        throw new ApiError(400, "Student was not created!! | after creating entry to database check")
+    }
+
+    // return responce
+    return res
+        .status(201)
+        .json(
+            new ApiResponse(
+                201,
+                studentuser,
+                "Student Created Successfully"
+            )
+        )
+
+
+})
+
+// get all students
+const getAllStudents = asyncHandler(async (req, res) => {
+    const Students = Student.find().select("-password")
+
+    return res
+        .status(200)
+        .json(
+            new ApiResponse(200, Students, "All students fetched successfully")
+        )
+})
+
+// delete student
+const deleteStudent = asyncHandler(async (req, res) => {
+    const { studentId } = req.body
+    if (!studentId || studentId.trim() === "") {
+        throw new ApiError(400, "Student ID is required")
+    }
+    const student = await Student.findByIdAndDelete(studentId)
+
+    if (!student) {
+        throw new ApiError(404, "Student not found")
+    }
+
+    return res
+        .status(200)
+        .json(
+            new ApiResponse(200, {}, "Student deleted successfully")
+        )
+})
+
+// create batch
+const createBatch = asyncHandler(async (req, res) => {
+    const { name } = req.body
+
+    if (!name || name.trim() === "") {
+        throw new ApiError(400, "Enter batch name")
+    }
+
+    const normalizedName = name.trim()
+
+    const checkbatch = await Batch.findOne({ name: normalizedName })
+    if (checkbatch) {
+        throw new ApiError(409, "Batch Already Exists!!")
+    }
+
+    let batch
+    try {
+        batch = await Batch.create({ name: normalizedName })
+    } catch (error) {
+        if (error?.code === 11000) {
+            throw new ApiError(409, "Batch Already Exists!!")
+        }
+        throw error
+    }
+
+    const Batchcreated = await Batch.findById(batch._id)
+
+    if (!Batchcreated) {
+        throw new ApiError(400, "Error while creating Batch")
+    }
+
+    return res
+        .status(201)
+        .json(
+            new ApiResponse(201, Batchcreated, "Batch was created Successfully!!")
+        )
+})
+
+// get all batches
+const getAllBatches = asyncHandler(async (req, res) => {
+    const batches = await Batch.find()
+
+    return res
+        .status(200)
+        .json(
+            new ApiResponse(200, batches, "All batches fetched successfully")
+        )
+})
+
+// change Batch name
+const changeBatchName = asyncHandler(async (req, res) => {
+    const { batchId, newName } = req.body
+
+    if (!batchId || batchId.trim() === "") {
+        throw new ApiError(400, "Batch ID is required")
+    }
+
+    if (!newName || newName.trim() === "") {
+        throw new ApiError(400, "New Batch name is required")
+    }
+
+    const batch = await Batch.findById(batchId)
+
+    if (!batch) {
+        throw new ApiError(404, "Batch not found")
+    }
+    const normalizedNewName = newName.trim()
+
+    const existingBatch = await Batch.findOne({ name: normalizedNewName })
+
+    if (existingBatch) {
+        throw new ApiError(409, "Another batch with the same name already exists")
+    }
+
+    batch.name = normalizedNewName
+    await batch.save()
+
+    return res
+        .status(200)
+        .json(
+            new ApiResponse(200, batch, "Batch name updated successfully")
+        )
+})
+
+// get all students of batch
+const getAllStudentsOfBatch = asyncHandler(async (req, res) => {
+    const { batchId } = req.body
+
+    if (!batchId || batchId.trim() === "") {
+        throw new ApiError(400, "Batch ID is required")
+    }
+
+    const batch = await Batch.findById(batchId)
+
+    if (!batch) {
+        throw new ApiError(404, "Batch not found")
+    }
+
+    const students = await Student.aggregate([
+        { $match: { batch: batch._id } },
+        { $project: { password: 0 } }
+    ])
+
+    return res
+        .status(200)
+        .json(
+            new ApiResponse(200, students, "Students of batch fetched successfully")
+        )
+})
+
+
+// delete batch and all that batch student  
+const deleteBatch = asyncHandler(async (req, res) => {
+    const { batchId } = req.body
+
+    if (!batchId || batchId.trim() === "") {
+        throw new ApiError(400, "Batch ID is required")
+    }
+
+    const batch = await Batch.findById(batchId)
+
+    if (!batch) {
+        throw new ApiError(404, "Batch not found")
+    }
+
+    await Student.deleteMany({ batch: batch._id })
+    await Batch.findByIdAndDelete(batchId)
+
+    return res
+        .status(200)
+        .json(
+            new ApiResponse(200, {}, "Batch and associated students deleted successfully")
+        )
+})
+
+// change student batch
+const changeStudentBatch = asyncHandler(async (req, res) => {
+    const { studentId, newBatchId } = req.body
+
+    if (!studentId || studentId.trim() === "") {
+        throw new ApiError(400, "Student ID is required")
+    }
+    if (!newBatchId || newBatchId.trim() === "") {
+        throw new ApiError(400, "New Batch ID is required")
+    }
+
+    const student = await Student.findById(studentId)
+
+    if (!student) {
+        throw new ApiError(404, "Student not found")
+    }
+    const newBatch = await Batch.findById(newBatchId)
+
+    if (!newBatch) {
+        throw new ApiError(404, "New Batch not found")
+    }
+
+    student.batch = newBatch._id
+    await student.save()
+
+    return res
+        .status(200)
+        .json(
+            new ApiResponse(200, student, "Student batch updated successfully")
+        )
+})
+
+// chnange all student batch from one batch to another batch
+const changeAllStudentsBatch = asyncHandler(async (req, res) => {
+    const { oldBatchId, newBatchId } = req.body
+
+    // checking------------
+
+    if (!oldBatchId || oldBatchId.trim() === "") {
+        throw new ApiError(400, "Old Batch ID is required")
+    }
+
+    if (!newBatchId || newBatchId.trim() === "") {
+        throw new ApiError(400, "New Batch ID is required")
+    }
+    const oldBatch = await Batch.findById(oldBatchId)
+
+    if (!oldBatch) {
+        throw new ApiError(404, "Old Batch not found")
+    }
+    const newBatch = await Batch.findById(newBatchId)
+
+    if (!newBatch) {
+        throw new ApiError(404, "New Batch not found")
+    }
+
+    // main logic------------
+
+    const result = await Student.updateMany(
+        { batch: oldBatch._id },
+        { $set: { batch: newBatch._id } }
+    )
+
+    // responce------------
+    return res
+        .status(200)
+        .json(
+            new ApiResponse(200, result, "All students batch updated successfully")
+        )
+})
+
+// create subject
+const createSubject = asyncHandler(async (req, res) => {
+    const { name, batchId } = req.body
+
+    // checking----------------
+
+
+    if (!name || name.trim() === "") {
+        throw new ApiError(400, "Subject name is required")
+    }
+    if (!batchId || batchId.trim() === "") {
+        throw new ApiError(400, "Batch ID is required")
+    }
+
+    const batch = await Batch.findById(batchId)
+
+    if (!batch) {
+        throw new ApiError(404, "Batch not found")
+    }
+
+    const normalizedName = name.trim()
+
+    const existingSubject = await Subject.findOne({ name: normalizedName, batch: batch._id })
+
+    if (existingSubject) {
+        throw new ApiError(409, "Subject with the same name already exists in this batch")
+    }
+
+
+
+    // main logic------------------
+
+    const subject = await Subject.create({ name: normalizedName, batch: batch._id })
+
+    if (!subject) {
+        throw new ApiError(500, "Something went wrong while creating the subject")
+    }
+
+    // responce------------------
+    return res
+        .status(201)
+        .json(
+            new ApiResponse(201, subject, "Subject created successfully")
+        )
+})
+
+// get all subjects of batch
+const getAllSubjectsOfBatch = asyncHandler(async (req, res) => {
+    const { batchId } = req.body
+
+    // checking----------------
+    if (!batchId || batchId.trim() === "") {
+        throw new ApiError(400, "Batch ID is required")
+    }
+    const batch = await Batch.findById(batchId)
+
+    if (!batch) {
+        throw new ApiError(404, "Batch not found")
+    }
+    const subjects = await Subject.find({ batch: batch._id })
+
+    // responce------------------
+    return res
+        .status(200)
+        .json(
+            new ApiResponse(200, subjects, "Subjects of batch fetched successfully")
+        )
+})
+
+// get all students of subject
+const getAllStudentsOfSubject = asyncHandler(async (req, res) => {
+    const { subjectId } = req.body
+
+    // checking----------------
+    if (!subjectId || subjectId.trim() === "") {
+        throw new ApiError(400, "Subject ID is required")
+    }
+
+    const subject = await Subject.findById(subjectId)
+
+    if (!subject) {
+        throw new ApiError(404, "Subject not found")
+    }
+
+    // main logic------------------
+    const studentSubjects = await StudentSubject.aggregate([
+        { $match: { subject: subject._id } },
+        { $lookup: {
+            from: "students",
+            localField: "student",
+            foreignField: "_id",
+            as: "studentDetails"
+        }},
+        { $unwind: "$studentDetails" },
+        { $project: { "studentDetails.password": 0 } }
+    ])
+
+    // responce------------------
+    return res
+        .status(200)
+        .json(
+            new ApiResponse(200, studentSubjects, "Students of subject fetched successfully")
+        )
+})
+
+// change subject name3
+const changeSubjectName = asyncHandler(async (req, res) => {
+    const { subjectId, newName } = req.body
+
+    // checking----------------
+    if (!subjectId || subjectId.trim() === "") {
+        throw new ApiError(400, "Subject ID is required")
+    }
+    if (!newName || newName.trim() === "") {
+        throw new ApiError(400, "New Subject name is required")
+    }
+
+    const subject = await Subject.findById(subjectId)
+
+    if (!subject) {
+        throw new ApiError(404, "Subject not found")
+    }
+
+    const normalizedNewName = newName.trim()
+
+    const existingSubject = await Subject.findOne({ name: normalizedNewName, batch: subject.batch })
+
+    if (existingSubject) {
+        throw new ApiError(409, "Another subject with the same name already exists in this batch")
+    }
+
+    // main logic------------------
+
+    subject.name = normalizedNewName
+    await subject.save()
+
+    // responce------------------
+    return res
+        .status(200)
+        .json(
+            new ApiResponse(200, subject, "Subject name updated successfully")
+        )
+})
+
+// add student to subject
+const addStudentToSubject = asyncHandler(async (req, res) => {
+    const { subjectId, studentId } = req.body
+
+    // checking----------------
+    if (!subjectId || subjectId.trim() === "") {
+        throw new ApiError(400, "Subject ID is required")
+    }
+    if (!studentId || studentId.trim() === "") {
+        throw new ApiError(400, "Student ID is required")
+    }
+
+    const subject = await Subject.findById(subjectId)
+
+    if (!subject) {
+        throw new ApiError(404, "Subject not found")
+    }
+    const student = await Student.findById(studentId)
+
+    if (!student) {
+        throw new ApiError(404, "Student not found")
+    }
+
+    // main logic------------------
+
+    // check if student already enrolled
+    const isEnrolled = await StudentSubject.findOne({ student: student._id, subject: subject._id })
+    if (isEnrolled) {
+        throw new ApiError(409, "Student is already enrolled in this subject")
+    }
+
+    const newStudentSubject = await StudentSubject.create({ student: student._id, subject: subject._id })
+
+    // responce------------------
+    return res
+        .status(200)
+        .json(
+            new ApiResponse(200, newStudentSubject, "Student added to subject successfully")
+        )
+})
+
+// delete subject from batch
+const deleteSubjectFromBatch = asyncHandler(async (req, res) => {
+    const { subjectId } = req.body
+
+    // checking----------------
+    if (!subjectId || subjectId.trim() === "") {
+        throw new ApiError(400, "Subject ID is required")
+    }
+
+    const subject = await Subject.findById(subjectId)
+
+    if (!subject) {
+        throw new ApiError(404, "Subject not found")
+    }
+
+    // main logic------------------
+    await StudentSubject.deleteMany({ subject: subject._id })
+    await subject.deleteOne()
+
+    // responce------------------
+    return res
+        .status(200)
+        .json(
+            new ApiResponse(200, {}, "Subject deleted from batch successfully")
+        )
+})
+
+// Add unit to subject
+const addUnit = asyncHandler(async (req, res) => {
+    const { subjectId, unitName } = req.body
+
+    // checking----------------
+    if (!subjectId || subjectId.trim() === "") {
+        throw new ApiError(400, "Subject ID is required")
+    }
+    if (!unitName || unitName.trim() === "") {
+        throw new ApiError(400, "Unit name is required")
+    }
+
+    const subject = await Subject.findById(subjectId)
+
+    if (!subject) {
+        throw new ApiError(404, "Subject not found")
+    }
+
+    // main logic------------------
+    const normalizedUnitName = unitName.trim()
+
+    const existingUnit = await Unit.findOne({ subject: subject._id, title: normalizedUnitName })
+
+    if (existingUnit) {
+        throw new ApiError(409, "Another unit with the same name already exists in this subject")
+    }
+
+    const newUnit = await Unit.create({ subject: subject._id, title: normalizedUnitName })
+
+    // responce------------------
+    return res
+        .status(200)
+        .json(
+            new ApiResponse(200, newUnit, "Unit added to subject successfully")
+        )
+})
+
+// get all units of subject
+const getAllUnitsOfSubject = asyncHandler(async (req, res) => {
+    const { subjectId } = req.body
+
+    // checking----------------
+    if (!subjectId || subjectId.trim() === "") {
+        throw new ApiError(400, "Subject ID is required")
+    }
+
+    const subject = await Subject.findById(subjectId)
+
+    if (!subject) {
+        throw new ApiError(404, "Subject not found")
+    }
+
+    const units = await Unit.find({ subject: subject._id })
+
+    // responce------------------
+    return res
+        .status(200)
+        .json(
+            new ApiResponse(200, units, "Units of subject fetched successfully")
+        )
+})
+
+// change unit name
+const changeUnitName = asyncHandler(async (req, res) => {
+    const { unitId, newName } = req.body
+
+    // checking----------------
+    if (!unitId || unitId.trim() === "") {
+        throw new ApiError(400, "Unit ID is required")
+    }
+    if (!newName || newName.trim() === "") {
+        throw new ApiError(400, "New Unit name is required")
+    }
+
+    const unit = await Unit.findById(unitId)
+
+    if (!unit) {
+        throw new ApiError(404, "Unit not found")
+    }
+
+    const normalizedNewName = newName.trim()
+
+    const existingUnit = await Unit.findOne({ title: normalizedNewName, subject: unit.subject })
+
+    if (existingUnit) {
+        throw new ApiError(409, "Another unit with the same name already exists in this subject")
+    }
+
+    unit.title = normalizedNewName
+    await unit.save()
+
+    // responce------------------
+    return res
+        .status(200)
+        .json(
+            new ApiResponse(200, unit, "Unit name changed successfully")
+        )
+})
+
+// delete unit from subject
+const deleteUnitFromSubject = asyncHandler(async (req, res) => {
+    const { unitId } = req.body
+
+    // checking----------------
+    if (!unitId || unitId.trim() === "") {
+        throw new ApiError(400, "Unit ID is required")
+    }
+
+    const unit = await Unit.findById(unitId)
+
+    if (!unit) {
+        throw new ApiError(404, "Unit not found")
+    }
+
+    await unit.deleteOne()
+
+    // responce------------------
+    return res
+        .status(200)
+        .json(
+            new ApiResponse(200, {}, "Unit deleted from subject successfully")
+        )
+})
+
+// add material to unit
+const addMaterialToUnit = asyncHandler(async (req, res) => {
+    // code here
+})
+
+// get all materials of unit
+const getAllMaterialsOfUnit = asyncHandler(async (req, res) => {
+    const { unitId } = req.body
+
+    // checking----------------
+    if (!unitId || unitId.trim() === "") {
+        throw new ApiError(400, "Unit ID is required")
+    }
+
+    const unit = await Unit.findById(unitId)
+
+    if (!unit) {
+        throw new ApiError(404, "Unit not found")
+    }
+
+    const materials = await Material.aggregate([{ $match: { unit: unit._id } }])
+
+    // responce------------------
+    return res
+        .status(200)
+        .json(
+            new ApiResponse(200, materials, "Materials of unit fetched successfully")
+        )
+})
+
+// delete material from unit
+const deleteMaterialFromUnit = asyncHandler(async (req, res) => {
+    // code here
+})
+
+
+export {
+    // auth functions
+    registerUser,
+    loginUser,
+    logoutUser,
+
+    // student functions
+    registerStudent,
+    deleteStudent,
+
+    // batch functions
+    createBatch,
+    changeBatchName,
+    deleteBatch,
+
+    // student-batch functions
+    changeStudentBatch,
+    changeAllStudentsBatch,
+
+    // subject functions
+    createSubject,
+    changeSubjectName,
+    addStudentToSubject,
+    deleteSubjectFromBatch,
+
+    // unit functions
+    addUnit,
+    changeUnitName,
+    deleteUnitFromSubject,
+
+    // material functions
+    addMaterialToUnit,
+    deleteMaterialFromUnit,
+
+    // get functions
+    getAllStudents,
+    getAllBatches,
+    getAllStudentsOfBatch,
+    getAllSubjectsOfBatch,
+    getAllStudentsOfSubject,
+    getAllUnitsOfSubject,
+    getAllMaterialsOfUnit
+}
