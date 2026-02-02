@@ -29,17 +29,3 @@ export const verifyJWT = asyncHandler(async(req, _, next) => {
     
 })
 
-export const verifyAdmin = asyncHandler(async(req, _, next) => {
-    if (req.user.role !== "admin") {
-        throw new ApiError(403, "Forbidden: Admins only")
-    }
-
-    next()
-})
-
-export const verifyInstructor = asyncHandler(async(req, _, next) => {
-    if (req.user.role !== "instructor" && req.user.role !== "admin") {
-        throw new ApiError(403, "Forbidden: Instructors only")
-    }
-    next()
-})

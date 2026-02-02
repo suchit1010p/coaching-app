@@ -17,6 +17,13 @@ import {
     addUnit,
     changeUnitName,
     deleteUnitFromSubject,
+    getAllStudents,
+    getAllBatches,
+    getAllStudentsOfBatch,
+    getAllSubjectsOfBatch,
+    getAllStudentsOfSubject,
+    getAllUnitsOfSubject,
+    getAllMaterialsOfUnit
 } from "../controllers/user.controller.js";
 import { verifyJWT } from "../middlewares/auth.middleware.js";
 
@@ -49,4 +56,12 @@ router.route("/add/unit").post(verifyJWT, addUnit)
 router.route("/change/unit/changeName").patch(verifyJWT, changeUnitName)
 router.route("/delete/unit").delete(verifyJWT, deleteUnitFromSubject)
 
+// Get routes
+router.route("/get/all/students").get(verifyJWT, getAllStudents)
+router.route("/get/all/batches").get(verifyJWT, getAllBatches)
+router.route("/get/all/students/of/batch").get(verifyJWT, getAllStudentsOfBatch)
+router.route("/get/all/subjects/of/batch").get(verifyJWT, getAllSubjectsOfBatch)
+router.route("/get/all/students/of/subject").get(verifyJWT, getAllStudentsOfSubject)
+router.route("/get/all/units/of/subject").get(verifyJWT, getAllUnitsOfSubject)
+router.route("/get/all/materials/of/unit").get(verifyJWT, getAllMaterialsOfUnit)
 export default router

@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
-import jwt from "jsonwebtoken"
-import bcrypt from "bcrypt"
+import jwt from "jsonwebtoken";
+import bcrypt from "bcrypt";
 
 const studentSchema = new mongoose.Schema(
     {
@@ -30,7 +30,6 @@ const studentSchema = new mongoose.Schema(
         parentMobile: {
             type: String,
             required: true,
-            unique: true,
             trim: true
         },
         batch: {
@@ -42,36 +41,43 @@ const studentSchema = new mongoose.Schema(
     { timestamps: true }
 );
 
-studentSchema.pre("save", async function () {
-    if (!this.isModified("password")) return
+// Hash password before saving
+studentSchema.pre("save",  async function () {
+    if (!this.isModified("password")) return 
 
     this.password = await bcrypt.hash(this.password, 10);
-})
+});
 
+// Method to compare password
+studentSchema.methods.isPasswordCorrect = async function (password) {
+    return await bcrypt.compare(password, this.password);
+};
+
+// Generate Access Token
 studentSchema.methods.generateAccessToken = function () {
     return jwt.sign(
         {
+            _id: this._id,
             rollNumber: this.rollNumber,
-            mobile: this.mobile,
         },
-        process.env.ACCESS_TOKEN_SECRET,
+        process.env.STUDENT_ACCESS_TOKEN_SECRET || process.env.ACCESS_TOKEN_SECRET,
         {
-            expiresIn: process.env.ACCESS_TOKEN_EXPIRY
+            expiresIn: process.env.STUDENT_ACCESS_TOKEN_EXPIRY || process.env.ACCESS_TOKEN_EXPIRY || "1d"
         }
-    )
-}
+    );
+};
 
+// Generate Refresh Token
 studentSchema.methods.generateRefreshToken = function () {
-  return jwt.sign(
-    {
-        rollNumber: this.rollNumber,
-        mobile: this.mobile,
-    },
-    process.env.REFRESH_TOKEN_SECRET,
-    {
-        expiresIn: process.env.REFRESH_TOKEN_EXPIRY
-    }
-  )
-}
+    return jwt.sign(
+        {
+            _id: this._id,
+        },
+        process.env.STUDENT_REFRESH_TOKEN_SECRET || process.env.REFRESH_TOKEN_SECRET,
+        {
+            expiresIn: process.env.STUDENT_REFRESH_TOKEN_EXPIRY || process.env.REFRESH_TOKEN_EXPIRY || "7d"
+        }
+    );
+};
 
 export const Student = mongoose.model("Student", studentSchema);

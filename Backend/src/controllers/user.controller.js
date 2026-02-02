@@ -133,54 +133,59 @@ const logoutUser = asyncHandler(async (req, res) => {
 
 // register student
 const registerStudent = asyncHandler(async (req, res) => {
-    const { rollNumber, name, mobile, password, parentName, parentMobile, batch } = req.body
+    const { rollNumber, name, mobile, password, parentName, parentMobile, batchId } = req.body
 
     if (
-        [rollNumber, name, mobile, password, parentName, parentMobile, batch].some((field) => field?.trim() === "")
-    ) throw new ApiError(400, "All field are required")
+        [rollNumber, name, mobile, password, parentName, parentMobile, batchId].some((field) => field?.trim() === "")
+    ) throw new ApiError(400, "All fields are required")
 
-    // check user exists
-    const normalizedNumber = mobile.trim()
-    const studentEntry = await Student.findOne({ normalizedNumber })
-
-    if (studentEntry) {
-        throw new ApiError(400, "Student Already exists!!")
+    // Validate batch exists
+    const batch = await Batch.findById(batchId)
+    if (!batch) {
+        throw new ApiError(404, "Batch not found")
     }
 
-    // create entry. 
-    const student = await Student.create(
-        {
-            rollNumber,
-            name,
-            mobile,
-            password,
-            parentName,
-            parentMobile,
-            batch
-        }
-    )
+    // Check if student with same mobile already exists
+    const normalizedMobile = mobile.trim()
+    const existingStudent = await Student.findOne({ mobile: normalizedMobile })
 
-    // get user and remove password. 
-
-    const studentuser = await Student.findById(student._id).select("-password")
-
-    if (!studentuser) {
-        throw new ApiError(400, "Student was not created!! | after creating entry to database check")
+    if (existingStudent) {
+        throw new ApiError(409, "Student with this mobile number already exists")
     }
 
-    // return responce
+    // Check if rollNumber already exists in the batch
+    const normalizedRollNumber = rollNumber.trim()
+    const rollNumberExists = await Student.findOne({ rollNumber: normalizedRollNumber, batch: batchId })
+
+    if (rollNumberExists) {
+        throw new ApiError(409, "Roll number already exists in this batch")
+    }
+
+    // Create student entry
+    const student = await Student.create({
+        rollNumber: normalizedRollNumber,
+        name: name.trim(),
+        mobile: normalizedMobile,
+        password,
+        parentName: parentName.trim(),
+        parentMobile: parentMobile.trim(),
+        batch: batchId
+    })
+
+    // Get student without password and populate batch details
+    const studentUser = await Student.findById(student._id).select("-password").populate("batch", "name")
+
+    if (!studentUser) {
+        throw new ApiError(500, "Error while creating student")
+    }
+
     return res
         .status(201)
         .json(
-            new ApiResponse(
-                201,
-                studentuser,
-                "Student Created Successfully"
-            )
+            new ApiResponse(201, studentUser, "Student created successfully")
         )
-
-
 })
+
 
 // get all students
 const getAllStudents = asyncHandler(async (req, res) => {
