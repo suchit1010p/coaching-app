@@ -1,4 +1,4 @@
-import mongoose, {Schema} from "mongoose";
+import mongoose, { Schema } from "mongoose";
 
 const attendanceSchema = new mongoose.Schema(
     {
@@ -12,17 +12,17 @@ const attendanceSchema = new mongoose.Schema(
             ref: "Subject",
             required: true
         },
-        date: { 
-            type: Date, 
-            required: true 
+        date: {
+            type: Date,
+            required: true
         },
         takenBy: {
             type: Schema.Types.ObjectId,
             ref: "User"
         },
-        isFinal: { 
-            type: Boolean, 
-            default: false 
+        isFinal: {
+            type: Boolean,
+            default: false
         }
     }, { timestamps: true }
 );
